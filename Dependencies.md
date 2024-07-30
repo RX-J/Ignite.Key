@@ -1,6 +1,6 @@
 | Ressource                      |  Source                                                       |
 |--------------------------------|---------------------------------------------------------------|
-| System                         | https://dotnet.microsoft.com/en-us/download                   |
+| System                         | https://www.nuget.org/packages/runtime.native.System          |
 | System.Linq                    | https://www.nuget.org/packages/System.Linq                    |
 | System.Threading               | https://www.nuget.org/packages/System.Threading               |
 | System.Threading.Tasks         | https://www.nuget.org/packages/System.Threading.Tasks         |
