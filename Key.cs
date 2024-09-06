@@ -257,6 +257,7 @@ namespace Ignite {
             public System.Action Action;
             public int Delay;
 
+            private int Count;
             private readonly System.Threading.Thread Thread;
 
             public Subscribe (in System.Action action, in byte[] keys, in Mode mode = Mode.Down, in int delay = 0xF) {
@@ -264,6 +265,7 @@ namespace Ignite {
                 this.Delay = delay;
                 this.Option = mode;
                 this.Action = action;
+
                 this.Thread = new Thread (this.Monitor);
                 this.Thread.Start ();
             }
@@ -280,9 +282,18 @@ namespace Ignite {
                     var current = System.Linq.Enumerable.ToArray (System.Linq.Enumerable.Select (this.Keys, key => Pressed (key)));
                     if ((this.Option == Mode.Pressed && System.Linq.Enumerable.All (current, pressed => pressed)) ||
                         (this.Option == Mode.Down && System.Linq.Enumerable.All (current, pressed => pressed) && !System.Linq.Enumerable.SequenceEqual (previous, current)) ||
-                        (this.Option == Mode.Up && !System.Linq.Enumerable.All (current, pressed => pressed) && System.Linq.Enumerable.Any (previous, pressed => pressed)))
+                        (this.Option == Mode.Up && !System.Linq.Enumerable.All (current, pressed => pressed) && System.Linq.Enumerable.Any (previous, pressed => pressed))) {
                         this.Action ();
+                    }
+
                     previous = current;
+
+                    if (this.Count == 0xFFF) {
+                        System.GC.Collect (2, System.GCCollectionMode.Aggressive);
+                        this.Count = 0;
+                    } else {
+                        this.Count++;
+                    }
 
                     System.Threading.Thread.Sleep (this.Delay);
                 }
