@@ -251,35 +251,40 @@ namespace Ignite {
             public const byte CLEAR = 0xFE;
         }
 
-        public class Hotkey {
-            public int Delay { get; set; } = 8;
+        public class Subscribe {
+            public Mode Option;
+            public byte[] Keys;
+            public System.Action Action;
+            public int Delay;
 
-            private readonly Mode mode;
-            private readonly int[] keys;
-            private readonly System.Action action;
-            private readonly System.Threading.CancellationTokenSource cancellationTokenSource = new ();
+            private readonly System.Threading.Thread Thread;
 
-            public Hotkey (System.Action action, params int[] keys) : this (action, Mode.Down, keys) { }
-
-            public Hotkey (System.Action action, Mode mode, params int[] keys) {
-                this.keys = keys;
-                this.mode = mode;
-                this.action = action;
-                System.Threading.Tasks.Task.Run (() => this.Monitor (this.cancellationTokenSource.Token));
+            public Subscribe (in System.Action action, in byte[] keys, in Mode mode = Mode.Down, in int delay = 0xF) {
+                this.Keys = keys;
+                this.Delay = delay;
+                this.Option = mode;
+                this.Action = action;
+                this.Thread = new Thread (this.Monitor);
+                this.Thread.Start ();
             }
 
-            public void Unsubscribe () => this.cancellationTokenSource.Cancel ();
+            public Subscribe (in System.Action action, in byte key, in Mode mode = Mode.Down, in int delay = 0xF) : this (in action, [key], in mode, in delay) { }
+            public Subscribe (in System.Action action, in Mode mode = Mode.Down, in int delay = 0xF, params byte[] keys) : this (in action, in keys, in mode, in delay) { }
 
-            private async System.Threading.Tasks.Task Monitor (System.Threading.CancellationToken cancellationToken) {
-                var previous = new bool[this.keys.Length];
-                while (!cancellationToken.IsCancellationRequested) {
-                    var current = System.Linq.Enumerable.ToArray (System.Linq.Enumerable.Select (this.keys, key => Pressed (key)));
-                    if ((this.mode == Mode.Pressed && System.Linq.Enumerable.All (current, pressed => pressed)) ||
-                        (this.mode == Mode.Down && System.Linq.Enumerable.All (current, pressed => pressed) && !System.Linq.Enumerable.SequenceEqual (previous, current)) ||
-                        (this.mode == Mode.Up && !System.Linq.Enumerable.All (current, pressed => pressed) && System.Linq.Enumerable.Any (previous, pressed => pressed)))
-                        this.action ();
+            public void Unsubscribe ()
+                => this.Thread.Join ();
+
+            private void Monitor () {
+                var previous = new bool[this.Keys.Length];
+                while (true) {
+                    var current = System.Linq.Enumerable.ToArray (System.Linq.Enumerable.Select (this.Keys, key => Pressed (key)));
+                    if ((this.Option == Mode.Pressed && System.Linq.Enumerable.All (current, pressed => pressed)) ||
+                        (this.Option == Mode.Down && System.Linq.Enumerable.All (current, pressed => pressed) && !System.Linq.Enumerable.SequenceEqual (previous, current)) ||
+                        (this.Option == Mode.Up && !System.Linq.Enumerable.All (current, pressed => pressed) && System.Linq.Enumerable.Any (previous, pressed => pressed)))
+                        this.Action ();
                     previous = current;
-                    await System.Threading.Tasks.Task.Delay (this.Delay, cancellationToken);
+
+                    System.Threading.Thread.Sleep (this.Delay);
                 }
             }
 
