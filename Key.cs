@@ -314,7 +314,7 @@ namespace Ignite {
                     default:
                         keybd_event (key, 0, 1, 0);
                         System.Threading.Thread.Sleep (8);
-                        keybd_event (key, 0, 1 | 2, 0);
+                        keybd_event (key, 0, 3, 0);
                         break;
                 }
         }
@@ -340,7 +340,7 @@ namespace Ignite {
                             ki = new KEYBDINPUT {
                                 wVk = 0,
                                 wScan = key,
-                                dwFlags = 4 | 2,
+                                dwFlags = 6,
                                 time = 0,
                                 dwExtraInfo = 0
                             }
@@ -348,7 +348,7 @@ namespace Ignite {
                     }
                 ], System.Runtime.InteropServices.Marshal.SizeOf (typeof (INPUT)));
 
-                System.Threading.Thread.Sleep (2);
+                System.Threading.Thread.Sleep (8);
             }
         }
     }
