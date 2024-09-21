@@ -1,47 +1,51 @@
 namespace Ignite {
     public static class Key {
         [System.Runtime.InteropServices.DllImport ("user32.dll")]
-        private static extern short GetAsyncKeyState (int key);
+        private static extern short GetAsyncKeyState (int vKey);
+
         [System.Runtime.InteropServices.DllImport ("user32.dll")]
         private static extern void keybd_event (byte bVk, byte bScan, uint dwFlags, nuint dwExtraInfo);
 
         [System.Runtime.InteropServices.DllImport ("user32.dll")]
-        private static extern void mouse_event (uint dwFlags, uint dx, uint dy, uint dwData, nuint dwExtraInfo);
-
-        [System.Runtime.InteropServices.DllImport ("user32.dll")]
-        private static extern uint SendInput (uint nInputs, INPUT[] pInputs, int cbSize);
+        private static extern uint SendInput (uint nInputs, [System.Runtime.InteropServices.MarshalAs (System.Runtime.InteropServices.UnmanagedType.LPArray)] INPUT[] pInputs, int cbSize);
 
         [System.Runtime.InteropServices.StructLayout (System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct INPUT {
+        public struct INPUT {
             public uint type;
             public InputUnion U;
         }
 
         [System.Runtime.InteropServices.StructLayout (System.Runtime.InteropServices.LayoutKind.Explicit)]
-        private struct InputUnion {
-            [System.Runtime.InteropServices.FieldOffset (0)]
-            public MOUSEINPUT mi;
-            [System.Runtime.InteropServices.FieldOffset (0)]
-            public KEYBDINPUT ki;
+        public struct InputUnion {
+            [System.Runtime.InteropServices.FieldOffset (0)] public MOUSEINPUT mi;
+            [System.Runtime.InteropServices.FieldOffset (0)] public KEYBDINPUT ki;
+            [System.Runtime.InteropServices.FieldOffset (0)] public HARDWAREINPUT hi;
         }
 
         [System.Runtime.InteropServices.StructLayout (System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct KEYBDINPUT {
+        public struct KEYBDINPUT {
             public ushort wVk;
             public ushort wScan;
             public uint dwFlags;
             public uint time;
-            public nint dwExtraInfo;
+            public nuint dwExtraInfo;
         }
 
         [System.Runtime.InteropServices.StructLayout (System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct MOUSEINPUT {
+        public struct MOUSEINPUT {
             public int dx;
             public int dy;
             public uint mouseData;
             public uint dwFlags;
             public uint time;
-            public nint dwExtraInfo;
+            public nuint dwExtraInfo;
+        }
+
+        [System.Runtime.InteropServices.StructLayout (System.Runtime.InteropServices.LayoutKind.Sequential)]
+        public struct HARDWAREINPUT {
+            public uint uMsg;
+            public ushort wParamL;
+            public ushort wParamH;
         }
 
         public const byte BACKSPACE = 0x08;
@@ -252,51 +256,72 @@ namespace Ignite {
         }
 
         public class Subscribe {
-            public Mode Option;
-            public byte[] Keys;
-            public System.Action Action;
-            public int Delay;
+            private bool Running;
 
-            private int Count;
-            private readonly System.Threading.Thread Thread;
+            public Mode Option { get; }
+            public byte[] Keys { get; }
+            public System.Action Action { get; }
+            public int Delay { get; }
 
-            public Subscribe (in System.Action action, in byte[] keys, in Mode mode = Mode.Down, in int delay = 0xF) {
+            public Subscribe (in System.Action action, in byte[] keys, in Mode mode = Mode.Down, in int delay = 15) {
                 this.Keys = keys;
                 this.Delay = delay;
                 this.Option = mode;
                 this.Action = action;
 
-                this.Thread = new Thread (this.Monitor);
-                this.Thread.Start ();
+                Running = true;
+                _ = this.Monitor ();
             }
 
-            public Subscribe (in System.Action action, in byte key, in Mode mode = Mode.Down, in int delay = 0xF) : this (in action, [key], in mode, in delay) { }
-            public Subscribe (in System.Action action, in Mode mode = Mode.Down, in int delay = 0xF, params byte[] keys) : this (in action, in keys, in mode, in delay) { }
+            public Subscribe (in System.Action action, in byte key, in Mode mode = Mode.Down, in int delay = 15) : this (in action, [key], in mode, in delay) { }
 
-            public void Unsubscribe ()
-                => this.Thread.Join ();
+            public void Unsubscribe () => this.Running = false;
 
-            private void Monitor () {
+            private async System.Threading.Tasks.Task Monitor () {
                 var previous = new bool[this.Keys.Length];
-                while (true) {
-                    var current = System.Linq.Enumerable.ToArray (System.Linq.Enumerable.Select (this.Keys, key => Pressed (key)));
-                    if ((this.Option == Mode.Pressed && System.Linq.Enumerable.All (current, pressed => pressed)) ||
-                        (this.Option == Mode.Down && System.Linq.Enumerable.All (current, pressed => pressed) && !System.Linq.Enumerable.SequenceEqual (previous, current)) ||
-                        (this.Option == Mode.Up && !System.Linq.Enumerable.All (current, pressed => pressed) && System.Linq.Enumerable.Any (previous, pressed => pressed))) {
+
+                while (Running) {
+                    var current = new bool[this.Keys.Length];
+
+                    for (var i = 0; i < this.Keys.Length; i++)
+                        current[i] = Pressed (this.Keys[i]);
+
+                    if ((this.Option == Mode.Pressed && All (current)) ||
+                        (this.Option == Mode.Down && All (current) && !Equal (previous, current)) ||
+                        (this.Option == Mode.Up && !All (current) && Any (previous))) {
                         this.Action ();
                     }
 
-                    previous = current;
-
-                    if (this.Count == 0xFFF) {
-                        System.GC.Collect (2, System.GCCollectionMode.Aggressive);
-                        this.Count = 0;
-                    } else {
-                        this.Count++;
-                    }
-
-                    System.Threading.Thread.Sleep (this.Delay);
+                    System.Array.Copy (current, previous, current.Length);
+                    await System.Threading.Tasks.Task.Delay (this.Delay);
                 }
+            }
+
+            private static bool All(bool[] keys) {
+                foreach (var key in keys)
+                    if (!key)
+                        return false;
+
+                return true;
+            }
+
+            private static bool Any (bool[] keys) {
+                foreach (var key in keys)
+                    if (key)
+                        return true;
+
+                return false;
+            }
+
+            private static bool Equal (bool[] a, bool[] b) {
+                if (a.Length != b.Length)
+                    return false;
+
+                for (var i = 0; i < a.Length; i++)
+                    if (a[i] != b[i])
+                        return false;
+
+                return true;
             }
 
             public enum Mode {
@@ -306,61 +331,94 @@ namespace Ignite {
             }
         }
 
-        public static bool Pressed (params int[] keys)
-            => System.Linq.Enumerable.All (keys, key => (GetAsyncKeyState (key) & 0x8000) != 0);
+        public static bool Pressed (in int key)
+            => (GetAsyncKeyState (key) & 0x8000) != 0;
 
         public static void Send (params byte[] keys) {
-            foreach (var key in keys)
+            foreach (var key in keys) {
                 switch (key) {
                     case Mouse.LEFT:
-                        mouse_event (2, 0, 0, 0, 0);
-                        System.Threading.Thread.Sleep (8);
-                        mouse_event (4, 0, 0, 0, 0);
-                        continue;
+                        Click (0x0002, 0x0004);
+                        break;
                     case Mouse.RIGHT:
-                        mouse_event (8, 0, 0, 0, 0);
-                        System.Threading.Thread.Sleep (8);
-                        mouse_event (10, 0, 0, 0, 0);
-                        continue;
+                        Click (0x0008, 0x0010);
+                        break;
                     default:
-                        keybd_event (key, 0, 1, 0);
-                        System.Threading.Thread.Sleep (8);
-                        keybd_event (key, 0, 3, 0);
+                        keybd_event (key, 0, 0, nuint.Zero);
+                        System.Threading.Thread.Sleep (1);
+                        keybd_event (key, 0, 2, nuint.Zero);
                         break;
                 }
+            }
         }
-
-        public static void Send (string value) {
+        public static void Send (in byte[] keys) {
+            foreach (var key in keys) {
+                switch (key) {
+                    case Mouse.LEFT:
+                        Click (0x0002, 0x0004);
+                        break;
+                    case Mouse.RIGHT:
+                        Click (0x0008, 0x0010);
+                        break;
+                    default:
+                        keybd_event (key, 0, 0, nuint.Zero);
+                        System.Threading.Thread.Sleep (1);
+                        keybd_event (key, 0, 2, nuint.Zero);
+                        break;
+                }
+            }
+        }
+        public static void Send (in string value) {
             foreach (var key in value) {
-                _ = SendInput (2, [
-                    new () {
+                var inputs = new INPUT[2];
+                    inputs[0] = new INPUT {
                         type = 1,
                         U = new InputUnion {
                             ki = new KEYBDINPUT {
-                                wVk = 0,
                                 wScan = key,
-                                dwFlags = 4,
-                                time = 0,
-                                dwExtraInfo = 0
+                                dwFlags = 4
                             }
                         }
-                    },
-                    new () {
+                    };
+
+                    inputs[1] = new INPUT {
                         type = 1,
                         U = new InputUnion {
                             ki = new KEYBDINPUT {
-                                wVk = 0,
                                 wScan = key,
-                                dwFlags = 6,
-                                time = 0,
-                                dwExtraInfo = 0
+                                dwFlags = 6
                             }
+                        }
+                    };
+
+                _ = SendInput (2, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT> ());
+
+                System.Threading.Thread.Sleep (1);
+            }
+        }
+        private static void Click (in uint down, in uint up) {
+            var inputs = new INPUT[2];
+                inputs[0] = new INPUT {
+                    type = 0,
+                    U = new InputUnion {
+                        mi = new MOUSEINPUT {
+                            dwFlags = down
                         }
                     }
-                ], System.Runtime.InteropServices.Marshal.SizeOf (typeof (INPUT)));
+                };
 
-                System.Threading.Thread.Sleep (8);
-            }
+                inputs[1] = new INPUT {
+                    type = 0,
+                    U = new InputUnion {
+                        mi = new MOUSEINPUT {
+                            dwFlags = up
+                        }
+                    }
+                };
+
+            _ = SendInput (2, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT> ());
+
+            System.Threading.Thread.Sleep (1);
         }
     }
 }
